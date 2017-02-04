@@ -14,7 +14,6 @@
 # THE SOFTWARE.
 
 # must be run from within a git repo to do anything useful
-# remove old lockfile if still present
 self=$(basename $0)
 BACKUP_AREA=${1-${BACKUP_AREA-/var/cache/openaps-ruination}}
 function usage ( ) {
@@ -34,11 +33,21 @@ esac
 test ! -d $BACKUP_AREA && BACKUP_AREA=/tmp
 BACKUP="$BACKUP_AREA/git-$(date +%s)"
 
-find .git/index.lock -mmin +5 -exec rm {} \; 2>/dev/null
+# remove old lockfile if still present
+find .git/index.lock -mmin +60 -exec rm {} \; 2>/dev/null
 # first, try oref0-fix-git-corruption.sh to preserve git history up to last good commit
 echo "Attempting to fix git corruption.  Please wait 15s."
 oref0-fix-git-corruption &
-sleep 15 && killall oref0-fix-git-corruption
+pid=$!
+(sleep 15; killall oref0-fix-git-corruption) &
+sleep_pid=$!
+wait $pid
+
+status=$?
+if [ $status -lt 128 ]; then
+	kill $sleep_pid
+fi
 # if git repository is too corrupt to do anything, mv it to /tmp and start over.
 
-git status > /dev/null || (echo "Saving backup to: $BACKUP" > /dev/stderr; mv .git $BACKUP; openaps init . )
+(git status && git diff && git symbolic-ref HEAD && ! df | grep 100% && ! df -i | grep 100%) > /dev/null || (echo "Saving backup to: $BACKUP" > /dev/stderr; mv .git $BACKUP; rm -rf .git; openaps init . )
+
